@@ -1,0 +1,5 @@
+{
+    "name": "imagine360-streaming-largefile-demo",
+    "minMuleVersion": "4.9.3",
+    "javaSpecificationVersions": ["17"]
+}

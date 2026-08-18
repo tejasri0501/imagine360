@@ -1,0 +1,61 @@
+http:
+  port: "8081"
+
+# ---------------------------------------------------------------------------
+# Working directory for the demo. The generator writes the big input file here
+# and the processor reads from / writes to the same folder. Point this at a
+# disk with enough free space for the test file(s).
+# ---------------------------------------------------------------------------
+work:
+  dir: "/tmp"
+
+# Input file the processor reads (produced by GET /generate).
+input:
+  fileName: "big-input.xml"
+
+# Where the processor writes the transformed, per-vendor output.
+output:
+  fileName: "vendor-output.xml"
+
+# ---------------------------------------------------------------------------
+# Generator knobs. records controls the input file size.
+# ~2,000,000 records lands around 200 MB, matching the file size Kal/Himanshu
+# said fails today. Bump it to 20,000,000+ to reproduce the multi-GB weekly
+# file. No memory cost to going big — the generator streams (deferred=true).
+# ---------------------------------------------------------------------------
+gen:
+  records: "2000000"
+
+# ---------------------------------------------------------------------------
+# S3 variant (GET /process-s3). Reads input.fileName from s3.bucketName and
+# writes output.fileName back to the same bucket. This is the customer's real
+# source: "we keep that file in AWS S3 and then read the file, transform it".
+# ---------------------------------------------------------------------------
+s3:
+  accessKey: "REPLACE_WITH_AWS_ACCESS_KEY"
+  secretKey: "REPLACE_WITH_AWS_SECRET_KEY"
+  region: "us-east-1"
+  bucketName: "amzn-s3-bucket-bcg"
+  # Used by the intake enrollment/save-zip sub-flows (streaming-largefile.xml)
+  criteriaConfigFiles:
+    bucketName: "amzn-s3-bucket-bcg"
+  audit:
+    location: "audit"
+    folder:
+      from:
+        sie:
+          to:
+            testvendor: "sie-to-testvendor"
+      enrollment: "enrollment"
+
+# ---------------------------------------------------------------------------
+# SFTP variant (GET /process-sftp). Reads input.fileName and writes
+# output.fileName under sftp.workingDir. This mirrors vendor delivery:
+# "create a new file per vendor's requirements and send the file out".
+# ---------------------------------------------------------------------------
+sftp:
+  host: "cloud-services.demos.mulesoft.com"
+  port: "32147"
+  username: "REPLACE_WITH_SFTP_USER"
+  password: "REPLACE_WITH_SFTP_PASSWORD"
+  workingDir: "/upload"

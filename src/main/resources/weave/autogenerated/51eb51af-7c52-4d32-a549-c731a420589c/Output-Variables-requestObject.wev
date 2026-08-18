@@ -1,0 +1,11 @@
+%dw 2.0
+
+type auto_51eb51af_7c52_4d32_a549_c731a420589c_Output_Variables_requestObject = {|
+  direction: String, 
+  entity: String, 
+  guid: String, 
+  payload*: Any, 
+  requestParameters: {|  |}, 
+  vendor: String
+|}
+

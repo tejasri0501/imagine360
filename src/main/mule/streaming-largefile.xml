@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/compression http://www.mulesoft.org/schema/mule/compression/current/mule-compression.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+	<flow name="streaming-largefileFlow" doc:id="af892deb-9b4a-4708-9b28-89c4d716502b" >
+		<http:listener doc:name="Listener" doc:id="20ce0699-ad8c-45d5-b42d-c9b8472e20f2" config-ref="HTTP_Listener_config" path="/s3">
+			<http:response statusCode="200"><http:headers>#[{ "Content-Type": "application/json" }]</http:headers></http:response>
+		</http:listener>
+		<!-- GET /s3?key=enrollment/enroll-250mb.zip  drives the enrollment read path.
+		     fileName is the last path segment; requestParameters feed the audit key. -->
+		<set-variable variableName="filepath" value="#[attributes.queryParams.key default 'enrollment/enroll-250mb.zip']" doc:name="filepath" />
+		<set-variable variableName="vendor" value="#[attributes.queryParams.vendor default 'testvendor']" doc:name="vendor" />
+		<set-variable variableName="direction" value="OB" doc:name="direction" />
+		<set-variable variableName="entity" value="enrollment" doc:name="entity" />
+		<set-variable variableName="requestParameters" doc:name="requestParameters" value="#[%dw 2.0
+output application/java
+var fp = attributes.queryParams.key default 'enrollment/enroll-250mb.zip'
+---
+{
+	source: (attributes.queryParams.source default 'sie'),
+	destination: (attributes.queryParams.destination default 'testvendor'),
+	entityType: 'enrollment',
+	fileName: ((fp splitBy '/')[-1] default fp)
+}]" />
+		<flow-ref doc:name="Flow Reference" doc:id="e4b84315-d673-4cf0-ae4c-d7467a7bfcf3" name="enrollment-prebr-ob-trigger-common-flow"/>
+		<set-payload value='#[%dw 2.0 output application/json --- { status: "ok", processed: vars.filepath }]' doc:name="Response" />
+	</flow>
+	<sub-flow name="enrollment-prebr-ob-trigger-common-flow" doc:id="51eb51af-7c52-4d32-a549-c731a420589c" >
+		<s3:get-object doc:name="Read File" doc:id="8b03e9d9-e393-4d6c-a479-1b7af0924696" config-ref="S3_Config" bucketName="${s3.criteriaConfigFiles.bucketName}" key="#[vars.filepath]" outputMimeType="application/zip">
+			<ee:repeatable-file-store-stream inMemorySize="1" bufferUnit="MB"/>
+		</s3:get-object>
+		<logger level="INFO" doc:name="Enrollment zip file read complete" doc:id="260fc10e-1c2a-4fed-9e47-c60ef4e2c7f4" message="Enrollment zip file : #[vars.filepath] read complete for  vendor: #[vars.vendor], direction: #[vars.direction], entity: #[vars.entity], guid: #[correlationId]" />
+		<flow-ref name="create-request-processing-stage-flow" doc:name="create request object" />
+		<flow-ref doc:name="save-zip-file-on-s3" doc:id="74ca6ff7-bb5a-43d7-8ce3-e1ddb476760d" name="save-zip-file-on-s3" target="ignoreResponse" />
+		<logger level="INFO" doc:name="Enrollment zip file saved to S3" doc:id="dccc0231-e455-48d9-842f-d243bbc9d57f" message="Enrollment zip file saved to S3 for vendor: #[vars.vendor], guid: #[correlationId]" />
+		<s3:delete-object doc:name="Delete Object" doc:id="8c35d667-d9b2-4ec8-ab7f-4e1929bf7f28" config-ref="S3_Config" bucketName="${s3.criteriaConfigFiles.bucketName}" key="#[vars.filepath]"/>
+		<logger level="INFO" doc:name="Deleted the file in S3-Input folder" doc:id="4b0a8317-5036-4749-a6ba-6b2b7b690e70" message="Deleted the file in S3-Input folder"/>
+		<remove-variable variableName="ignoreResponse" doc:name="Remove Ignore Response Variable" />
+		<ee:transform doc:name="Create Request Object Without Payload">
+                    <ee:variables>
+                        <ee:set-variable variableName="requestObject">
+                            <![CDATA[%dw 2.0
+output application/java
+---
+payload ++ {
+	payload : ""
+}]]>        
+                        </ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+		<compression:decompress doc:name="unzip file" doc:id="f23a6f78-7e99-4bd2-8342-1b4c7bfba2bf">
+			<ee:repeatable-file-store-stream bufferUnit="MB" inMemorySize="10"/>
+			<compression:compressed><![CDATA[#[payload.payload]]]></compression:compressed>
+			<compression:decompressor>
+				<compression:zip-decompressor />
+			</compression:decompressor>
+		</compression:decompress>
+		<logger level="INFO" doc:name="File unzipped for processing" doc:id="54ed7660-4dbd-4ccb-914f-882c7253440c" message="File unzipped for processing for  vendor: #[vars.vendor], direction: #[vars.direction], entity: #[vars.entity], guid: #[correlationId]"/>
+	</sub-flow>
+	<sub-flow name="save-zip-file-on-s3" doc:id="227868e6-d917-4870-8c6f-26e9488b1652" >
+		<ee:transform doc:name="set audit file details">
+                    <ee:variables>
+                        <ee:set-variable variableName="s3AuditFileDetails">
+                            <![CDATA[%dw 2.0
+output application/java
+var request = payload
+var source = request.requestParameters.source
+var destination = request.requestParameters.destination
+var businessEntityType = request.requestParameters.entityType
+var auditFolder = p("s3.audit.location")
+var sourceDestinationFolder = p("s3.audit.folder.from." ++ source ++ ".to." ++ destination)
+var entityFolder = p("s3.audit.folder." ++ businessEntityType)
+var fileName = request.requestParameters.fileName
+var fileExtension = "zip"
+var requestGuid = request.guid
+---
+{
+	file : auditFolder ++ "/" ++ sourceDestinationFolder ++ "/" ++ entityFolder ++ "/" ++ requestGuid ++ "/RequestFile/" ++ fileName,
+	extension : fileExtension	
+}]]>                   
+                        </ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+		<set-payload value="#[payload.payload]" doc:name="set zip as payload" doc:id="1cfb0c6e-02eb-4861-bd42-27f3d27cc0f3" mimeType="application/zip" />
+		<flow-ref name="write-file-on-s3-flow" doc:name="write to s3" target="ignoreResponse" />
+		<logger level="INFO" doc:name="Written zip file to S3" doc:id="02004032-551b-42b5-8655-27b60117d9fd" message="Written zip file to S3 for  vendor: #[vars.vendor], direction: #[vars.direction], entity: #[vars.entity], guid: #[correlationId]" />
+	</sub-flow>
+
+	<!-- ============================================================================
+	     create-request-processing-stage-flow
+	     Wraps the S3 object (the zip stream, current payload) into the request
+	     object the downstream steps expect: { guid, requestParameters, payload }.
+	     MEMORY-SAFE: the zip is captured as vars.zipContent (the repeatable
+	     file-store cursor from s3:get-object) and only *referenced* in the object,
+	     never coerced to a byte[]/String — so it stays disk-backed, not on heap.
+	     ============================================================================ -->
+	<sub-flow name="create-request-processing-stage-flow" doc:id="a0000000-0000-4000-8000-000000000010" >
+		<set-variable variableName="zipContent" value="#[payload]" doc:name="capture zip stream" />
+		<ee:transform doc:name="Build request object">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+	guid: (correlationId default vars.correlationId default ""),
+	requestParameters: (vars.requestParameters default {}),
+	vendor: (vars.vendor default ""),
+	direction: (vars.direction default ""),
+	entity: (vars.entity default ""),
+	payload: vars.zipContent
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+
+	<!-- ============================================================================
+	     write-file-on-s3-flow
+	     Streams the current payload (the zip) up to S3 at vars.s3AuditFileDetails.file.
+	     MEMORY-SAFE: contentLength is supplied from the stream's own length (or
+	     sizeOf as a fallback) so the S3 connector v7 does NOT call
+	     determineStreamLength(), which otherwise buffers the ENTIRE body into a
+	     ByteArrayOutputStream just to measure it -> the classic put-side OOM.
+	     ============================================================================ -->
+	<sub-flow name="write-file-on-s3-flow" doc:id="a0000000-0000-4000-8000-000000000011" >
+		<s3:put-object doc:name="S3 put-object" config-ref="S3_Config"
+			bucketName="${s3.criteriaConfigFiles.bucketName}"
+			key="#[vars.s3AuditFileDetails.file]"
+			contentLength="#[(payload.^contentLength) default sizeOf(payload)]">
+			<s3:content>#[payload]</s3:content>
+		</s3:put-object>
+		<logger level="INFO" doc:name="S3 write complete" message="#['[WRITE-S3] wrote key=' ++ (vars.s3AuditFileDetails.file default '')]" />
+	</sub-flow>
+
+</mule>

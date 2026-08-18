@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/s3   http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+		http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+		http://www.mulesoft.org/schema/mule/compression http://www.mulesoft.org/schema/mule/compression/current/mule-compression.xsd
+		http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- ============================================================================
+	     ENROLLMENT MEMORY TEST — A/B comparison, run under a small heap (-Xmx512m)
+	     against enrollment/enroll-250mb.zip (11 MB zip -> 250 MB XML).
+
+	       GET /memtest-customer   = the customer's pattern (OOMs)
+	       GET /memtest-fix        = the streaming fix (flat heap)
+
+	     Both apply the SAME (heavy) SIE enrollment transform, so the only variable
+	     is HOW the file is decompressed + how the transform output is handled.
+	     ============================================================================ -->
+
+	<sub-flow name="log-heap">
+		<logger level="INFO" doc:name="Heap" message="#['[MEMTEST] stage=' ++ (vars.stage default '?')]" />
+	</sub-flow>
+
+	<!-- ========================================================================
+	     A) CUSTOMER PATTERN  (reproduces the OOM)
+	        - compression:decompress  (connector inflates whole zip into heap byte[])
+	        - transform: output application/java  (full in-memory Java List)
+	        - Update Payload: wrap the whole list in requestObject.payload
+	     ======================================================================== -->
+	<flow name="memtest-customer">
+		<http:listener config-ref="HTTP_Listener_config" path="/memtest-customer" allowedMethods="GET">
+			<http:response statusCode="200"/>
+		</http:listener>
+		<set-variable variableName="s3Key" value="#[attributes.queryParams.key default 'enrollment/enroll-250mb.zip']" doc:name="s3Key"/>
+		<set-variable variableName="stage" value="start" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<s3:get-object doc:name="S3 get zip" config-ref="S3_Config"
+			bucketName="${s3.bucketName}" key="#[vars.s3Key]"/>
+		<set-variable variableName="stage" value="after-get" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<!-- Their unzip: connector decompress (this is the step that OOMs). -->
+		<compression:decompress doc:name="unzip (connector)">
+			<compression:compressed>#[payload]</compression:compressed>
+			<compression:decompressor><compression:zip-decompressor/></compression:decompressor>
+		</compression:decompress>
+		<set-payload value="#[(payload pluck $)[0]]" doc:name="set xml payload" mimeType="application/xml"/>
+		<set-variable variableName="stage" value="after-unzip" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<!-- Their EnrollmentSieToTransformer.dwl shape: output application/java,
+		     heavy per-record formatting (CMS111, coverage lists, cleanData). -->
+		<ee:transform doc:name="SIE->Eligibility (their transform)">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+
+fun cleanData(data) = data filterObject not isEmpty($)
+fun formatData(data) = cleanData(data)
+fun formatDataList(dataList) = dataList map formatData
+
+fun formatEmployeeCoverageList(dataList) =
+  dataList map (item) ->
+    cleanData(item -- ["MemberLaserAmtList"] ++ {
+      MemberLaserAmtList: formatDataList(item.MemberLaserAmtList.*MemberLaserAmt default [])
+    })
+
+fun formatEmployeeRecord(data) =
+  cleanData(data -- ["CMS111", "EmployeeCoverageList", "DependentRecordsList"]) ++ {
+    PreexistingConditions: data.VPreexistingConditions.PreexistingConditions default "U",
+    CMS111: formatData(data.CMS111 default {}),
+    EmployeeCoverageList: formatEmployeeCoverageList(data.EmployeeCoverageList.*EmployeeCoverage default [])
+  }
+---
+(payload.Member.EmployeeRecordsList.*EmployeeRecord) map formatEmployeeRecord($)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable variableName="stage" value="after-transform" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<!-- Their "Update Payload": wrap the whole materialized list in a request object. -->
+		<ee:transform doc:name="Update Payload (their pattern)">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{ requestParameters: (vars.requestParameters default {}), payload: payload }]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable variableName="stage" value="after-update-payload" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<set-payload value='#[%dw 2.0 output application/json --- { mode: "customer", key: vars.s3Key, status: "ok" }]' doc:name="Response"/>
+	</flow>
+
+	<!-- ========================================================================
+	     B) STREAMING FIX  (flat heap)
+	        - Groovy ZipInputStream inflates entry to a temp file, 64 KB at a time
+	        - file:read the temp file back as an RFSS XML stream
+	        - transform: input streaming=true / output deferred=true, forward-only map
+	        - write straight to a JSON sink (no in-memory accumulation, no wrap)
+	     ======================================================================== -->
+	<flow name="memtest-fix">
+		<http:listener config-ref="HTTP_Listener_config" path="/memtest-fix" allowedMethods="GET">
+			<http:response statusCode="200"/>
+		</http:listener>
+		<set-variable variableName="s3Key" value="#[attributes.queryParams.key default 'enrollment/enroll-250mb.zip']" doc:name="s3Key"/>
+		<set-variable variableName="tmpFile" value="#[('/tmp/unzipped-' ++ ((vars.s3Key default 'x') replace '/' with '_') ++ '.xml')]" doc:name="tmpFile"/>
+		<set-variable variableName="stage" value="start" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<s3:get-object doc:name="S3 get zip (RFSS)" config-ref="S3_Config"
+			bucketName="${s3.bucketName}" key="#[vars.s3Key]">
+			<ee:repeatable-file-store-stream inMemorySize="1" bufferUnit="MB"/>
+		</s3:get-object>
+		<set-variable variableName="stage" value="after-get" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<!-- Streaming inflate: 64 KB bounded buffer, straight to disk. -->
+		<scripting:execute doc:name="Groovy streaming unzip" engine="groovy">
+			<scripting:code><![CDATA[
+import java.util.zip.ZipInputStream
+def zin = new ZipInputStream(payload)
+try {
+    if (zin.getNextEntry() == null) throw new RuntimeException("empty zip")
+    def out = new java.io.BufferedOutputStream(new java.io.FileOutputStream(vars.tmpFile))
+    try {
+        byte[] buf = new byte[65536]
+        int n
+        while ((n = zin.read(buf)) != -1) { out.write(buf, 0, n) }
+    } finally { out.close() }
+} finally { zin.close() }
+return vars.tmpFile
+]]></scripting:code>
+		</scripting:execute>
+		<set-variable variableName="stage" value="after-unzip" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<file:read doc:name="read unzipped (RFSS)" config-ref="File_Config" path="#[vars.tmpFile]" outputMimeType="application/xml">
+			<ee:repeatable-file-store-stream inMemorySize="1" bufferUnit="MB"/>
+		</file:read>
+		<set-variable variableName="stage" value="after-read-file" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<!-- Same SIE transform, but streamed to a sink instead of application/java + wrap. -->
+		<ee:transform doc:name="SIE->Eligibility (streamed)">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+input payload application/xml streaming=true
+output application/json deferred=true
+
+fun cleanData(data) = data filterObject not isEmpty($)
+fun formatData(data) = cleanData(data)
+fun formatDataList(dataList) = dataList map formatData
+
+fun formatEmployeeCoverageList(dataList) =
+  dataList map (item) ->
+    cleanData(item -- ["MemberLaserAmtList"] ++ {
+      MemberLaserAmtList: formatDataList(item.MemberLaserAmtList.*MemberLaserAmt default [])
+    })
+
+fun formatEmployeeRecord(data) =
+  cleanData(data -- ["CMS111", "EmployeeCoverageList", "DependentRecordsList"]) ++ {
+    PreexistingConditions: data.VPreexistingConditions.PreexistingConditions default "U",
+    CMS111: formatData(data.CMS111 default {}),
+    EmployeeCoverageList: formatEmployeeCoverageList(data.EmployeeCoverageList.*EmployeeCoverage default [])
+  }
+---
+(payload.Member.EmployeeRecordsList.*EmployeeRecord) map formatEmployeeRecord($)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<file:write doc:name="Write JSON (sink)" config-ref="File_Config"
+			path="#['memtest-fix-out-' ++ ((vars.s3Key default 'x') replace '/' with '_') ++ '.json']">
+			<file:content>#[payload]</file:content>
+		</file:write>
+		<set-variable variableName="stage" value="after-transform" doc:name="stage"/>
+		<flow-ref name="log-heap"/>
+
+		<file:delete doc:name="delete temp file" config-ref="File_Config" path="#[vars.tmpFile]"/>
+		<set-payload value='#[%dw 2.0 output application/json --- { mode: "streaming-fix", key: vars.s3Key, status: "ok" }]' doc:name="Response"/>
+	</flow>
+
+</mule>

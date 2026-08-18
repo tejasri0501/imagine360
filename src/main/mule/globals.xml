@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core   http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/http   http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/file   http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+		http://www.mulesoft.org/schema/mule/sftp   http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd
+		http://www.mulesoft.org/schema/mule/s3     http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd">
+
+	<configuration-properties doc:name="Configuration properties" file="configuration.yaml" />
+
+	<!-- Inbound HTTP listener — triggers the generate / process flows on demand. -->
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener">
+		<http:listener-connection host="0.0.0.0" port="${http.port}" />
+	</http:listener-config>
+
+	<!-- Local File connector, rooted at the working directory. In the customer's
+	     real flows this is the SFTP or S3 connector instead — the streaming
+	     configuration (repeatable-file-store-stream on read, streaming write) is
+	     IDENTICAL across File / SFTP / S3, which is the whole point of the demo. -->
+	<file:config name="File_Config" doc:name="File">
+		<file:connection workingDir="${work.dir}" />
+	</file:config>
+
+	<!-- ========================================================================
+	     S3 + SFTP configs for the connector-accurate variants of the process
+	     flow (see streaming-largefile-demo-connectors.xml). Fill in the matching
+	     s3.* / sftp.* values in configuration.yaml, then hit /process-s3 or
+	     /process-sftp. Left active so the flow file compiles; they only connect
+	     when the flow runs. The streaming SETTINGS are the same as the File flow
+	     — only the connector element changes. -->
+	<s3:config name="S3_Config" doc:name="Amazon S3">
+		<s3:connection accessKey="${s3.accessKey}" secretKey="${s3.secretKey}" region="${s3.region}" />
+	</s3:config>
+
+	<sftp:config name="SFTP_Config" doc:name="SFTP">
+		<sftp:connection host="${sftp.host}" port="${sftp.port}"
+			username="${sftp.username}" password="${sftp.password}"
+			workingDir="${sftp.workingDir}" />
+	</sftp:config>
+
+</mule>
