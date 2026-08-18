@@ -12,6 +12,7 @@ const INDUSTRIES = {
     logo: "🏦",
     accent: "#2563eb",       // blue
     accent2: "#1e3a8a",
+    bg: "linear-gradient(135deg,#0f172a 0%,#1e3a8a 55%,#2563eb 100%)",
     metric: "churnRisk",
     customers: [
       { id: "C-1001", name: "Priya Sharma  · Premier · $420/mo" },
@@ -25,6 +26,7 @@ const INDUSTRIES = {
     logo: "🛍️",
     accent: "#db2777",       // pink
     accent2: "#9d174d",
+    bg: "linear-gradient(135deg,#4a044e 0%,#9d174d 55%,#db2777 100%)",
     metric: "churnRisk",
     customers: [
       { id: "C-1001", name: "Priya Sharma · Loyalty Gold" },
@@ -38,6 +40,7 @@ const INDUSTRIES = {
     logo: "🏥",
     accent: "#059669",       // green
     accent2: "#065f46",
+    bg: "linear-gradient(135deg,#052e2b 0%,#065f46 55%,#059669 100%)",
     metric: "readmissionRisk",
     customers: [
       { id: "C-1001", name: "Priya Sharma · High utilization" },
@@ -51,6 +54,7 @@ const INDUSTRIES = {
     logo: "📡",
     accent: "#7c3aed",       // purple
     accent2: "#5b21b6",
+    bg: "linear-gradient(135deg,#1e1b4b 0%,#5b21b6 55%,#7c3aed 100%)",
     metric: "churnRisk",
     customers: [
       { id: "C-1001", name: "Priya Sharma · Family plan" },
