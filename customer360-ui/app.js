@@ -17,7 +17,6 @@ function onIndustryChange() {
   document.getElementById("logo").textContent = ind.logo;
   document.getElementById("companyName").textContent = ind.company;
   document.getElementById("tagline").textContent = ind.label + " · Customer 360 Agent";
-  document.getElementById("modeBadge").textContent = USE_MOCK ? "MOCK" : "LIVE";
   const custSel = document.getElementById("customer");
   custSel.innerHTML = "";
   ind.customers.forEach(c => {
