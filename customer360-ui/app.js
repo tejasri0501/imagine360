@@ -69,26 +69,43 @@ async function sendChat() {
   const typing = addTyping();
 
   let payload;
-  try {
-    payload = USE_MOCK ? mockMasterResponse(industry, customerId, text)
-                       : await callBackend(industry, customerId, text);
-  } catch (e) { payload = { error: String(e) }; }
+  try { payload = await callAgentFabric(industry, customerId, text); }
+  catch (e) { payload = { error: String(e) }; }
 
   typing.remove();
   renderAgent(payload, industry);
   btn.disabled = false; inp.focus();
 }
 
-async function callBackend(industry, customerId, message) {
-  if (!BACKEND_URL) {
-    return { error: "BACKEND_URL is not set yet. Set it in config.js to the master endpoint (e.g. https://your-app.cloudhub.io/api/master)." };
+// Call the Agent Fabric master broker directly over A2A (JSON-RPC message/send).
+async function callAgentFabric(industry, customerId, message) {
+  if (!AF_BROKER_URL) {
+    return { error: "AF_BROKER_URL is not set. In config.js set it to the Agent Fabric broker A2A endpoint." };
   }
-  const r = await fetch(BACKEND_URL, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ industry, customerId, message })
+  const text = "industry=" + industry + "; customerId=" + customerId + "; request: " + message;
+  const body = {
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "message/send",
+    params: {
+      message: {
+        role: "user",
+        messageId: crypto.randomUUID(),
+        parts: [ { kind: "text", text: text } ]
+      }
+    }
+  };
+  const r = await fetch(AF_BROKER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(body)
   });
-  if (!r.ok) return { error: "Backend returned HTTP " + r.status };
-  return await r.json();
+  if (!r.ok) return { error: "Agent Fabric returned HTTP " + r.status };
+  const j = await r.json();
+  // A2A reply: pull the text out of result.message.parts (or result.parts)
+  const parts = (j.result && (j.result.message && j.result.message.parts || j.result.parts)) || [];
+  const replyText = parts.filter(p => p.kind === "text" || p.text).map(p => p.text).join("\n");
+  return { mode: "agent-fabric", reply: replyText || JSON.stringify(j), raw: j };
 }
 
 // --- render agent result as a rich card bubble ---
@@ -126,37 +143,5 @@ function renderAgent(payload, industry) {
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
-// --- MOCK master (mirrors MuleSoft Data Cloud scoring + industry decision) ---
-function mockMasterResponse(industry, customerId, message) {
-  const ind = INDUSTRIES[industry];
-  const db = {
-    "C-1001": { name: "Priya Sharma", value: 420, s: { complaints:3, engagement:1, negative:0, priceShock:true, sat:3 } },
-    "C-1002": { name: "James Morrison", value: 85, s: { complaints:0, engagement:22, negative:0, priceShock:false, sat:9 } },
-    "C-1003": { name: "Aisha Khan", value: 310, s: { complaints:1, engagement:3, negative:2, priceShock:false, sat:5 } }
-  };
-  const g = db[customerId] || db["C-1001"];
-  const s = g.s;
-  let score = s.complaints*12 + (s.engagement<4?25:0) + s.negative*15 + (s.priceShock?18:0) + (s.sat<=4?20:0);
-  if (score > 100) score = 100;
-  const band = score >= 60 ? "HIGH" : score >= 30 ? "MEDIUM" : "LOW";
-  const drivers = [];
-  if (s.complaints>0) drivers.push("Recent complaints: " + s.complaints);
-  if (s.engagement<4) drivers.push("Low engagement (" + s.engagement + "/30d)");
-  if (s.negative>0) drivers.push("Negative events: " + s.negative);
-  if (s.priceShock) drivers.push("Recent price/rate increase");
-  if (s.sat<=4) drivers.push("Low satisfaction (" + s.sat + ")");
-  let action, actions;
-  if (band === "HIGH" && g.value >= 300) { action = "OFFER_PLUS_CASE";
-    actions = [ {system:"CoreSystem", applied:true, offer:"Loyalty offer", ref:"OFR-"+customerId},
-                {system:"ServiceNow", opened:true, subject:"High-value at-risk follow-up", ref:"CASE-"+customerId} ]; }
-  else if (band === "HIGH") { action = "OFFER"; actions = [ {system:"CoreSystem", applied:true, offer:"Targeted offer", ref:"OFR-"+customerId} ]; }
-  else if (band === "MEDIUM") { action = "OUTREACH"; actions = [ {system:"MarketingCloud", sent:true, channel:"email", ref:"MSG-"+customerId} ]; }
-  else { action = "MONITOR"; actions = [ {system:"none", note:"MONITOR — no action"} ]; }
-  return { mode:"mock", routedIndustry: industry, result: {
-    agent: industry+"-agent", company: ind.company, customerId, customer: g.name,
-    insight: { metric: ind.metric, score, band, drivers },
-    decision: { band, action }, actionsTaken: actions } };
-}
 
 onIndustryChange();

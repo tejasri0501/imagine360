@@ -2,8 +2,9 @@
 // Industry branding + sample customers. Edit freely for demos.
 // When the real backend is ready, set BACKEND_URL and USE_MOCK = false.
 // ============================================================================
-const USE_MOCK = false;                // real-time mode: calls the master backend
-const BACKEND_URL = "";                // <-- SET THIS: https://your-app.cloudhub.io/api/master
+// The master IS Agent Fabric — the UI calls the AF broker directly (A2A).
+// Set AF_BROKER_URL to the broker's A2A endpoint (from the AF ingress gateway).
+const AF_BROKER_URL = "";              // <-- SET THIS: https://<af-ingress>/customer360Master
 
 // Inline SVG tiled patterns (data-URIs). Zero external requests, always load,
 // no CORS. Faint white icons themed per industry, layered over the gradient.
