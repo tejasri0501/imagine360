@@ -98,6 +98,11 @@ function renderAgent(payload, industry) {
   const d = document.createElement("div");
   d.className = "msg agent";
   if (payload.error) { d.innerHTML = '<div class="who">' + ind.company + ' agent</div>Error: ' + escapeHtml(payload.error); chat.appendChild(d); return; }
+  // Agent Fabric path returns a natural-language reply (LLM). Render it as text.
+  if (payload.mode === "agent-fabric" && payload.reply) {
+    d.innerHTML = '<div class="who">' + ind.company + ' agent</div>' + escapeHtml(payload.reply).replace(/\n/g,"<br>");
+    chat.appendChild(d); chat.scrollTop = chat.scrollHeight; return;
+  }
   const r = payload.result || payload;
   const ins = r.insight || {};
   const band = ins.band || "—";
