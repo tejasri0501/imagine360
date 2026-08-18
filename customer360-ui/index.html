@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Customer 360 Agent Network</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <div class="logo" id="logo">◆</div>
+      <div>
+        <div class="company" id="companyName">Acme Financial</div>
+        <div class="tagline" id="tagline">Customer 360 Agent Network</div>
+      </div>
+    </div>
+    <div class="mode" id="modeBadge">MOCK</div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <h2>Run the agent</h2>
+
+      <label for="industry">Industry</label>
+      <select id="industry" onchange="onIndustryChange()"></select>
+
+      <label for="customer">Customer</label>
+      <select id="customer"></select>
+
+      <label for="message">Request</label>
+      <textarea id="message">Assess risk and take the best next action.</textarea>
+
+      <button id="go" onclick="runAgent()">Send to Master Agent →</button>
+    </section>
+
+    <section class="card result" id="resultCard" style="display:none">
+      <div class="route" id="routeLine"></div>
+      <div class="score-row">
+        <div class="score" id="scoreBox">
+          <div class="score-num" id="scoreNum">–</div>
+          <div class="score-label" id="scoreLabel">score</div>
+        </div>
+        <div class="score-meta">
+          <div id="custLine" class="cust"></div>
+          <div id="bandLine" class="band"></div>
+        </div>
+      </div>
+      <div class="section-title">Why (drivers)</div>
+      <ul id="drivers"></ul>
+      <div class="section-title">Decision</div>
+      <div id="decision" class="mono"></div>
+      <div class="section-title">Actions taken</div>
+      <div id="actions" class="mono"></div>
+    </section>
+  </main>
+
+  <footer>Master (Agent Fabric) routes by industry → industry agent → MuleSoft tools (Data Cloud 360 · Informatica · actions)</footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
