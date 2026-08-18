@@ -1,8 +1,12 @@
-:root { --accent:#2563eb; --accent2:#1e3a8a; --bg:linear-gradient(135deg,#0f172a,#1e3a8a,#2563eb); }
+:root { --accent:#2563eb; --accent2:#1e3a8a;
+  --bg:linear-gradient(135deg,#0f172a,#1e3a8a,#2563eb); --pattern:none; }
 * { box-sizing:border-box; }
 html,body { height:100%; }
 body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#0f172a;
-  background:var(--bg); background-attachment:fixed; display:flex; flex-direction:column; }
+  background-image:var(--pattern), var(--bg);
+  background-repeat:repeat, no-repeat;
+  background-attachment:fixed, fixed;
+  display:flex; flex-direction:column; }
 
 #topbar { display:flex; align-items:center; justify-content:space-between;
   padding:14px 22px; background:rgba(0,0,0,.25); backdrop-filter:blur(6px); color:#fff; }

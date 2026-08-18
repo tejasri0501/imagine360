@@ -13,6 +13,7 @@ function onIndustryChange() {
   document.documentElement.style.setProperty("--accent", ind.accent);
   document.documentElement.style.setProperty("--accent2", ind.accent2);
   document.documentElement.style.setProperty("--bg", ind.bg);
+  document.documentElement.style.setProperty("--pattern", ind.pattern || "none");
   document.getElementById("logo").textContent = ind.logo;
   document.getElementById("companyName").textContent = ind.company;
   document.getElementById("tagline").textContent = ind.label + " · Customer 360 Agent";
@@ -80,10 +81,14 @@ async function sendChat() {
 }
 
 async function callBackend(industry, customerId, message) {
+  if (!BACKEND_URL) {
+    return { error: "BACKEND_URL is not set yet. Set it in config.js to the master endpoint (e.g. https://your-app.cloudhub.io/api/master)." };
+  }
   const r = await fetch(BACKEND_URL, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ industry, customerId, message })
   });
+  if (!r.ok) return { error: "Backend returned HTTP " + r.status };
   return await r.json();
 }
 
