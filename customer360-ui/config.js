@@ -1,6 +1,6 @@
 // ============================================================================
 // Industry branding + sample customers. Edit freely for demos.
-// When the real backend is ready, set BACKEND_URL and USE_MOCK = false.
+// Set AF_BROKER_URL below to the Agent Fabric master broker (A2A) endpoint.
 // ============================================================================
 // The master IS Agent Fabric — the UI calls the AF broker directly (A2A).
 // Set AF_BROKER_URL to the broker's A2A endpoint (from the AF ingress gateway).
